@@ -78,6 +78,11 @@ def test_data(db_session):
             name="salt",
             category_id=categories["spices"].id,
             dietary_tags=[tags["vegetarian"], tags["vegan"], tags["gluten-free"], tags["dairy-free"]]
+        ),
+        "pepper": Ingredient(
+            name="pepper",
+            category_id=categories["spices"].id,
+            dietary_tags=[tags["vegetarian"], tags["vegan"], tags["gluten-free"], tags["dairy-free"]]
         )
     }
     db_session.add_all(ingredients.values())

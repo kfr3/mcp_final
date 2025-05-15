@@ -1,5 +1,6 @@
 from typing import List, Dict, Optional
 from sqlalchemy.orm import Session
+import logging
 
 from database.config import get_db
 from database.crud import (
@@ -9,11 +10,16 @@ from database.crud import (
     dietary_tag
 )
 
+# Set up logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
 def find_recipes(
     ingredients: List[str],
     dietary_restrictions: List[str],
     max_cooking_time: Optional[int] = None,
-    difficulty_level: Optional[str] = None
+    difficulty_level: Optional[str] = None,
+    db: Optional[Session] = None
 ) -> List[Dict]:
     """
     Find recipes based on available ingredients and dietary restrictions.
@@ -27,13 +33,14 @@ def find_recipes(
     Returns:
         List of matching recipes with their details
     """
-    db = next(get_db())
+    if db is None:
+        db = next(get_db())
     
     # Get all recipes
-    recipes = recipe.get_multi(db)
+    recipes_list = recipe.get_multi(db)
     matching_recipes = []
     
-    for recipe_obj in recipes:
+    for recipe_obj in recipes_list:
         # Check cooking time
         if max_cooking_time and recipe_obj.cooking_time > max_cooking_time:
             continue
@@ -81,41 +88,55 @@ def find_recipes(
     return matching_recipes
 
 def suggest_substitutions(
-    ingredient: str,
-    dietary_restrictions: List[str]
+    ingredient_name: str,
+    dietary_restrictions: List[str],
+    db: Optional[Session] = None
 ) -> List[Dict]:
     """
     Suggest ingredient substitutions based on dietary restrictions.
     
     Args:
-        ingredient: Name of the ingredient to substitute
+        ingredient_name: Name of the ingredient to substitute
         dietary_restrictions: List of dietary restrictions to consider
     
     Returns:
         List of potential substitute ingredients with their details
     """
-    db = next(get_db())
+    if db is None:
+        db = next(get_db())
+    # Debug log: Print session identity and list of ingredients
+    logger.info("Session ID: %s", id(db))
+    all_ingredients = ingredient.get_multi(db)
+    logger.info("All ingredients in DB: %s", [ing.name for ing in all_ingredients])
     
-    # Find the ingredient
-    ing = ingredient.get_by_name(db, name=ingredient)
-    if not ing:
+    # Return empty list if no dietary restrictions specified
+    if not dietary_restrictions:
+        logger.warning("No dietary restrictions specified for substitution.")
         return []
     
-    # Get all ingredients with matching dietary tags
+    # Find the ingredient
+    ing = ingredient.get_by_name(db, name=ingredient_name)
+    if not ing:
+        logger.warning("Ingredient '%s' not found in the database.", ingredient_name)
+        return []
+    
+    # Get all ingredients that match the dietary restrictions
     potential_substitutes = []
-    for tag in ing.dietary_tags:
-        if tag.name in dietary_restrictions:
-            for substitute in tag.ingredients:
-                if substitute.id != ing.id:
-                    potential_substitutes.append({
-                        "name": substitute.name,
-                        "category": substitute.category.name,
-                        "dietary_tags": [tag.name for tag in substitute.dietary_tags],
-                        "compatibility_score": calculate_compatibility_score(ing, substitute)
-                    })
+    for substitute in all_ingredients:
+        if substitute.id == ing.id:
+            continue
+        substitute_tags = {tag.name for tag in substitute.dietary_tags}
+        if all(restriction in substitute_tags for restriction in dietary_restrictions):
+            potential_substitutes.append({
+                "name": substitute.name,
+                "category": substitute.category.name,
+                "dietary_tags": [tag.name for tag in substitute.dietary_tags],
+                "compatibility_score": calculate_compatibility_score(ing, substitute)
+            })
     
     # Sort by compatibility score
     potential_substitutes.sort(key=lambda x: x["compatibility_score"], reverse=True)
+    logger.info("Potential substitutes for '%s': %s", ingredient_name, potential_substitutes)
     return potential_substitutes
 
 def calculate_compatibility_score(original: 'Ingredient', substitute: 'Ingredient') -> float:

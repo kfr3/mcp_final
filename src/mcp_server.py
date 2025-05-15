@@ -1,6 +1,7 @@
 from typing import List, Dict, Optional
 from mcp import MCP, Resource, Tool
 from sqlalchemy.orm import Session
+from pydantic import BaseModel
 
 from database.config import get_db
 from database.crud import (
@@ -15,7 +16,13 @@ from tools import find_recipes, suggest_substitutions
 # Initialize MCP server
 mcp = MCP()
 
-@mcp.resource("ingredients://{category}")
+app = mcp.app  # Use the FastAPI instance from MCP
+
+class SubstitutionRequest(BaseModel):
+    ingredient: str
+    dietary_restrictions: List[str]
+
+@app.get("/ingredients/{category}")
 def get_ingredients_by_category(category: str) -> List[str]:
     """
     Get all ingredients in a specific category.
@@ -28,7 +35,7 @@ def get_ingredients_by_category(category: str) -> List[str]:
     ingredients = ingredient.get_by_category(db, category_id=category_obj.id)
     return [ing.name for ing in ingredients]
 
-@mcp.resource("recipe://{recipe_id}")
+@app.get("/recipe/{recipe_id}")
 def get_recipe_details(recipe_id: str) -> Dict:
     """
     Get detailed information about a specific recipe.
@@ -66,7 +73,7 @@ def get_recipe_details(recipe_id: str) -> Dict:
         "dietary_tags": dietary_tags
     }
 
-@mcp.tool()
+@app.post("/tools/find_recipes")
 def find_recipes_tool(
     ingredients: List[str],
     dietary_restrictions: List[str],
@@ -83,17 +90,14 @@ def find_recipes_tool(
         difficulty_level=difficulty_level
     )
 
-@mcp.tool()
-def suggest_substitutions_tool(
-    ingredient: str,
-    dietary_restrictions: List[str]
-) -> List[Dict]:
+@app.post("/tools/suggest_substitutions")
+def suggest_substitutions_tool(request: SubstitutionRequest) -> List[Dict]:
     """
     Suggest ingredient substitutions based on dietary restrictions.
     """
     return suggest_substitutions(
-        ingredient=ingredient,
-        dietary_restrictions=dietary_restrictions
+        ingredient_name=request.ingredient,
+        dietary_restrictions=request.dietary_restrictions
     )
 
 def start_server():
